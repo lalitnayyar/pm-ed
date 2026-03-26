@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -13,11 +13,31 @@ import {
 } from "@dnd-kit/core";
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
+import { AiChat } from "@/components/AiChat";
+import {
+  clearSessionAuthenticated,
+  getSessionAuthenticated,
+  setSessionAuthenticated,
+  validateCredentials,
+} from "@/lib/auth";
+import { getBoard, saveBoard } from "@/lib/api";
 import { createId, initialData, moveCard, type BoardData } from "@/lib/kanban";
 
 export const KanbanBoard = () => {
   const [board, setBoard] = useState<BoardData>(() => initialData);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
+  const [isAuthResolved, setIsAuthResolved] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isBoardSynced, setIsBoardSynced] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+
+  useEffect(() => {
+    setIsAuthenticated(getSessionAuthenticated());
+    setIsAuthResolved(true);
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -26,6 +46,38 @@ export const KanbanBoard = () => {
   );
 
   const cardsById = useMemo(() => board.cards, [board.cards]);
+
+  useEffect(() => {
+    const loadBoard = async () => {
+      if (!isAuthenticated) {
+        setIsBoardSynced(false);
+        return;
+      }
+
+      try {
+        const persistedBoard = await getBoard();
+        setBoard(persistedBoard);
+      } catch {
+        setBoard(initialData);
+      } finally {
+        setIsBoardSynced(true);
+      }
+    };
+
+    void loadBoard();
+  }, [isAuthenticated]);
+
+  const updateBoard = (updater: (prev: BoardData) => BoardData) => {
+    setBoard((prev) => {
+      const next = updater(prev);
+      if (isBoardSynced) {
+        void saveBoard(next).catch(() => {
+          // Keep UI responsive when backend is unreachable.
+        });
+      }
+      return next;
+    });
+  };
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveCardId(event.active.id as string);
@@ -39,14 +91,14 @@ export const KanbanBoard = () => {
       return;
     }
 
-    setBoard((prev) => ({
+    updateBoard((prev) => ({
       ...prev,
       columns: moveCard(prev.columns, active.id as string, over.id as string),
     }));
   };
 
   const handleRenameColumn = (columnId: string, title: string) => {
-    setBoard((prev) => ({
+    updateBoard((prev) => ({
       ...prev,
       columns: prev.columns.map((column) =>
         column.id === columnId ? { ...column, title } : column
@@ -56,7 +108,7 @@ export const KanbanBoard = () => {
 
   const handleAddCard = (columnId: string, title: string, details: string) => {
     const id = createId("card");
-    setBoard((prev) => ({
+    updateBoard((prev) => ({
       ...prev,
       cards: {
         ...prev.cards,
@@ -71,7 +123,7 @@ export const KanbanBoard = () => {
   };
 
   const handleDeleteCard = (columnId: string, cardId: string) => {
-    setBoard((prev) => {
+    updateBoard((prev) => {
       return {
         ...prev,
         cards: Object.fromEntries(
@@ -89,7 +141,114 @@ export const KanbanBoard = () => {
     });
   };
 
+  const handleAiBoardUpdate = (updatedBoard: BoardData) => {
+    setBoard(updatedBoard);
+    if (isBoardSynced) {
+      void saveBoard(updatedBoard).catch(() => {
+        // Keep UI responsive when backend is unreachable.
+      });
+    }
+  };
+
   const activeCard = activeCardId ? cardsById[activeCardId] : null;
+
+  const handleSignIn = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!validateCredentials(username.trim(), password)) {
+      setAuthError("Invalid username or password.");
+      return;
+    }
+
+    setSessionAuthenticated();
+    setAuthError(null);
+    setPassword("");
+    setIsAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    clearSessionAuthenticated();
+    setIsAuthenticated(false);
+    setIsBoardSynced(false);
+    setUsername("");
+    setPassword("");
+  };
+
+  if (!isAuthResolved) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-[540px] items-center justify-center px-6">
+        <p className="text-sm text-[var(--gray-text)]">Loading...</p>
+      </main>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-[540px] items-center justify-center px-6">
+        <section className="w-full rounded-3xl border border-[var(--stroke)] bg-white p-8 shadow-[var(--shadow)]">
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[var(--gray-text)]">
+            Project Manager
+          </p>
+          <h1 className="mt-3 font-display text-3xl font-semibold text-[var(--navy-dark)]">
+            Sign in
+          </h1>
+          <p className="mt-3 text-sm text-[var(--gray-text)]">
+            Use username <strong>user</strong> and password <strong>password</strong>.
+          </p>
+
+          <form className="mt-6 space-y-4" onSubmit={handleSignIn}>
+            <div>
+              <label
+                htmlFor="login-username"
+                className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]"
+              >
+                Username
+              </label>
+              <input
+                id="login-username"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                autoComplete="username"
+                className="w-full rounded-xl border border-[var(--stroke)] px-3 py-2 text-sm text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)]"
+                required
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="login-password"
+                className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]"
+              >
+                Password
+              </label>
+              <input
+                id="login-password"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="current-password"
+                className="w-full rounded-xl border border-[var(--stroke)] px-3 py-2 text-sm text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)]"
+                required
+              />
+            </div>
+
+            {authError ? (
+              <p className="text-sm text-red-600" role="alert">
+                {authError}
+              </p>
+            ) : null}
+
+            <button
+              type="submit"
+              className="rounded-full bg-[var(--secondary-purple)] px-5 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white transition hover:brightness-110"
+            >
+              Sign in
+            </button>
+          </form>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <div className="relative overflow-hidden">
@@ -118,6 +277,22 @@ export const KanbanBoard = () => {
               <p className="mt-2 text-lg font-semibold text-[var(--primary-blue)]">
                 One board. Five columns. Zero clutter.
               </p>
+              <div className="mt-4 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsChatOpen(true)}
+                  className="rounded-full bg-[var(--primary-blue)] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white transition hover:brightness-110"
+                >
+                  AI Chat
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="rounded-full border border-[var(--stroke)] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--gray-text)] transition hover:text-[var(--navy-dark)]"
+                >
+                  Log out
+                </button>
+              </div>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-4">
@@ -160,6 +335,14 @@ export const KanbanBoard = () => {
           </DragOverlay>
         </DndContext>
       </main>
+
+      <AiChat
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        onBoardUpdate={handleAiBoardUpdate}
+        currentBoard={board}
+        username="user"
+      />
     </div>
   );
 };
