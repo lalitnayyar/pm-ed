@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AUTH_STORAGE_KEY } from "@/lib/auth";
 import { KanbanBoard } from "@/components/KanbanBoard";
@@ -42,8 +42,7 @@ describe("KanbanBoard", () => {
     render(<KanbanBoard />);
     const column = getFirstColumn();
     const input = within(column).getByLabelText("Column title");
-    await userEvent.clear(input);
-    await userEvent.type(input, "New Name");
+    fireEvent.change(input, { target: { value: "New Name" } });
     expect(input).toHaveValue("New Name");
   });
 

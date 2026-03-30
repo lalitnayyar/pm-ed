@@ -57,6 +57,11 @@ def find_static_file(requested_path: str) -> Path | None:
     return index_file if index_file.exists() else None
 
   candidate = static_dir / normalized_path
+  try:
+    candidate.resolve().relative_to(static_dir.resolve())
+  except ValueError:
+    return None
+
   if candidate.is_file():
     return candidate
 

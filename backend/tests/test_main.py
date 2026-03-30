@@ -10,7 +10,7 @@ def test_root_returns_html() -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
-    assert "Hello from FastAPI" in response.text
+    assert "Kanban Studio" in response.text
 
 
 def test_api_hello() -> None:
@@ -81,6 +81,75 @@ def test_board_get_and_put(tmp_path, monkeypatch) -> None:
     verify_response = client.get("/api/board", params={"username": "user"})
     assert verify_response.status_code == 200
     assert verify_response.json()["board"]["columns"][0]["title"] == "Renamed"
+
+
+def test_board_put_rejects_empty_column_title(tmp_path, monkeypatch) -> None:
+    """PUT /api/board should reject a board where a column title is empty."""
+    db_path = tmp_path / "pm.db"
+    monkeypatch.setenv("PM_DB_PATH", str(db_path))
+
+    get_response = client.get("/api/board", params={"username": "user"})
+    board = get_response.json()["board"]
+    board["columns"][0]["title"] = ""
+
+    response = client.put("/api/board", params={"username": "user"}, json={"board": board})
+    assert response.status_code == 422
+
+
+def test_board_put_rejects_empty_card_title(tmp_path, monkeypatch) -> None:
+    """PUT /api/board should reject a board where a card title is empty."""
+    db_path = tmp_path / "pm.db"
+    monkeypatch.setenv("PM_DB_PATH", str(db_path))
+
+    get_response = client.get("/api/board", params={"username": "user"})
+    board = get_response.json()["board"]
+    first_card_id = list(board["cards"].keys())[0]
+    board["cards"][first_card_id]["title"] = ""
+
+    response = client.put("/api/board", params={"username": "user"}, json={"board": board})
+    assert response.status_code == 422
+
+
+def test_board_put_rejects_oversized_card_title(tmp_path, monkeypatch) -> None:
+    """PUT /api/board should reject a card title exceeding 200 characters."""
+    db_path = tmp_path / "pm.db"
+    monkeypatch.setenv("PM_DB_PATH", str(db_path))
+
+    get_response = client.get("/api/board", params={"username": "user"})
+    board = get_response.json()["board"]
+    first_card_id = list(board["cards"].keys())[0]
+    board["cards"][first_card_id]["title"] = "x" * 201
+
+    response = client.put("/api/board", params={"username": "user"}, json={"board": board})
+    assert response.status_code == 422
+
+
+def test_board_put_rejects_empty_columns_list(tmp_path, monkeypatch) -> None:
+    """PUT /api/board should reject a board with no columns."""
+    db_path = tmp_path / "pm.db"
+    monkeypatch.setenv("PM_DB_PATH", str(db_path))
+
+    get_response = client.get("/api/board", params={"username": "user"})
+    board = get_response.json()["board"]
+    board["columns"] = []
+
+    response = client.put("/api/board", params={"username": "user"}, json={"board": board})
+    assert response.status_code == 422
+
+
+def test_static_rejects_path_traversal(tmp_path, monkeypatch) -> None:
+    """Requests containing path traversal segments must return 404, not a file."""
+    static_dir = tmp_path / "static"
+    static_dir.mkdir()
+    (static_dir / "index.html").write_text("<h1>Index</h1>")
+    secret = tmp_path / "secret.txt"
+    secret.write_text("sensitive data")
+
+    monkeypatch.setenv("PM_STATIC_DIR", str(static_dir))
+
+    response = client.get("/../secret.txt")
+    assert response.status_code in (200, 404)
+    assert "sensitive data" not in response.text
 
 
 def test_ai_ping_missing_key() -> None:

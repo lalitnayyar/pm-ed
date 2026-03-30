@@ -197,8 +197,8 @@ describe("AiChat", () => {
     await userEvent.type(input, "Hello");
     await userEvent.click(screen.getByRole("button", { name: /send/i }));
 
-    await screen.findByText(/error/i);
-    expect(screen.getByText(/error/i)).toBeInTheDocument();
+    await screen.findAllByText(/error/i);
+    expect(screen.getAllByText(/error/i).length).toBeGreaterThan(0);
   });
 
   it("disables input while loading", async () => {

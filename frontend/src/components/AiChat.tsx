@@ -54,6 +54,9 @@ export const AiChat = ({
     setError(null);
     setIsLoading(true);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
+
     try {
       // Send request to backend AI endpoint
       const conversationHistory = messages.map((msg) => ({
@@ -69,6 +72,7 @@ export const AiChat = ({
           prompt: input,
           conversationHistory,
         }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -106,6 +110,7 @@ export const AiChat = ({
 
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
+      clearTimeout(timeoutId);
       setIsLoading(false);
     }
   };

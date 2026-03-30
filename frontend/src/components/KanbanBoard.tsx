@@ -32,6 +32,7 @@ export const KanbanBoard = () => {
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [isBoardSynced, setIsBoardSynced] = useState(false);
+  const [hasSaveError, setHasSaveError] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
 
   useEffect(() => {
@@ -71,9 +72,9 @@ export const KanbanBoard = () => {
     setBoard((prev) => {
       const next = updater(prev);
       if (isBoardSynced) {
-        void saveBoard(next).catch(() => {
-          // Keep UI responsive when backend is unreachable.
-        });
+        void saveBoard(next)
+          .then(() => setHasSaveError(false))
+          .catch(() => setHasSaveError(true));
       }
       return next;
     });
@@ -144,9 +145,9 @@ export const KanbanBoard = () => {
   const handleAiBoardUpdate = (updatedBoard: BoardData) => {
     setBoard(updatedBoard);
     if (isBoardSynced) {
-      void saveBoard(updatedBoard).catch(() => {
-        // Keep UI responsive when backend is unreachable.
-      });
+      void saveBoard(updatedBoard)
+        .then(() => setHasSaveError(false))
+        .catch(() => setHasSaveError(true));
     }
   };
 
@@ -252,6 +253,11 @@ export const KanbanBoard = () => {
 
   return (
     <div className="relative overflow-hidden">
+      {hasSaveError && (
+        <div role="alert" className="fixed left-0 right-0 top-0 z-50 bg-red-600 px-6 py-2 text-center text-sm font-medium text-white">
+          Changes could not be saved — check your connection.
+        </div>
+      )}
       <div className="pointer-events-none absolute left-0 top-0 h-[420px] w-[420px] -translate-x-1/3 -translate-y-1/3 rounded-full bg-[radial-gradient(circle,_rgba(32,157,215,0.25)_0%,_rgba(32,157,215,0.05)_55%,_transparent_70%)]" />
       <div className="pointer-events-none absolute bottom-0 right-0 h-[520px] w-[520px] translate-x-1/4 translate-y-1/4 rounded-full bg-[radial-gradient(circle,_rgba(117,57,145,0.18)_0%,_rgba(117,57,145,0.05)_55%,_transparent_75%)]" />
 
@@ -341,7 +347,7 @@ export const KanbanBoard = () => {
         onClose={() => setIsChatOpen(false)}
         onBoardUpdate={handleAiBoardUpdate}
         currentBoard={board}
-        username="user"
+        username={username}
       />
     </div>
   );
