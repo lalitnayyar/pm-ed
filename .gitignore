@@ -175,3 +175,4 @@ cython_debug/
 .DS_Store
 
 .claude/settings.local.json
+.env.sample

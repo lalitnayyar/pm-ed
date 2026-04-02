@@ -22,8 +22,10 @@ The frontend is built to `frontend/out/` and copied to `backend/static/` for pro
 
 **Key source files:**
 - `frontend/src/components/KanbanBoard.tsx` — main component: auth, board state, drag-drop
+- `frontend/src/components/AiChat.tsx` — AI chat sidebar component
 - `frontend/src/lib/api.ts` — API client for board and AI endpoints
 - `frontend/src/lib/auth.ts` — session-based auth (hardcoded credentials)
+- `frontend/src/lib/kanban.ts` — board utility logic (column/card helpers)
 - `backend/app/main.py` — all FastAPI routes
 - `backend/app/ai.py` — OpenRouter integration and kanban-aware prompting
 - `backend/app/ai_validation.py` — JSON schema validation for AI responses
@@ -87,5 +89,9 @@ The AI chat endpoint (`POST /api/ai/chat`) receives the full board state as cont
 ## Testing Notes
 
 - Backend tests use `httpx.AsyncClient` with FastAPI's `ASGITransport` — no real network calls
-- Frontend unit tests use Vitest + jsdom; E2E uses Playwright
+- Frontend unit tests use Vitest + jsdom; component tests exist for `KanbanBoard` and `AiChat`; E2E uses Playwright
 - AI responses in tests use fixture JSON matching the schema in `docs/AI_SCHEMA.md`
+- Backend test files are split by module: `test_main.py`, `test_ai.py`, `test_ai_validation.py`, `test_db.py`
+
+
+
