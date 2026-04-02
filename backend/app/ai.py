@@ -26,7 +26,7 @@ def ask_openrouter(prompt: str) -> str:
         "Content-Type": "application/json",
     }
 
-    with httpx.Client(timeout=30.0) as client:
+    with httpx.Client(timeout=120.0) as client:
         response = client.post(OPENROUTER_URL, headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
@@ -121,6 +121,7 @@ def ask_openrouter_kanban(
         "model": MODEL_NAME,
         "messages": messages,
         "temperature": 0.7,
+        "tool_choice": "none",   # prevent the model from emitting tool_calls (which sets content=None)
     }
     
     headers = {
@@ -128,25 +129,63 @@ def ask_openrouter_kanban(
         "Content-Type": "application/json",
     }
     
-    with httpx.Client(timeout=30.0) as client:
+    with httpx.Client(timeout=120.0) as client:
         response = client.post(OPENROUTER_URL, headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()
-    
+
     choices = data.get("choices", [])
     if not choices:
         raise RuntimeError("OpenRouter returned no choices")
     
-    # Extract message content
+    # Extract message content (may be a string, a list of content parts, or None)
     message = choices[0].get("message", {})
     message_content = message.get("content")
-    
-    if not isinstance(message_content, str):
-        raise RuntimeError("OpenRouter returned non-string content")
-    
+
+    if isinstance(message_content, str):
+        raw_text = message_content.strip()
+    elif isinstance(message_content, list):
+        parts: list[str] = []
+        for item in message_content:
+            if isinstance(item, dict) and isinstance(item.get("text"), str):
+                parts.append(item["text"])
+        raw_text = "\n".join(parts).strip()
+        if not raw_text:
+            raise RuntimeError("OpenRouter returned an empty content list")
+    elif message_content is None:
+        # Some models return content=None when they emit tool_calls or refusals.
+        # Check sibling fields before giving up.
+        refusal = message.get("refusal")
+        if isinstance(refusal, str) and refusal.strip():
+            raise RuntimeError(f"AI refused the request: {refusal.strip()}")
+
+        # Reasoning models (o1-style) may put text in a 'reasoning' field.
+        reasoning = message.get("reasoning") or message.get("reasoning_content")
+        if isinstance(reasoning, str) and reasoning.strip():
+            raw_text = reasoning.strip()
+        else:
+            finish_reason = choices[0].get("finish_reason", "unknown")
+            raise RuntimeError(
+                f"AI returned no content (finish_reason={finish_reason!r}). "
+                "Please try again or rephrase your request."
+            )
+    else:
+        raise RuntimeError(
+            f"OpenRouter returned unexpected content type: {type(message_content).__name__}"
+        )
+
+    # Strip markdown code fences (```json ... ``` or ``` ... ```)
+    if raw_text.startswith("```"):
+        lines = raw_text.splitlines()
+        # drop first line (```json or ```) and last line (```)
+        inner = lines[1:] if len(lines) > 1 else lines
+        if inner and inner[-1].strip() == "```":
+            inner = inner[:-1]
+        raw_text = "\n".join(inner).strip()
+
     # Parse as JSON
     try:
-        response_data = json.loads(message_content)
+        response_data = json.loads(raw_text)
     except json.JSONDecodeError as e:
         raise RuntimeError(f"AI response is not valid JSON: {str(e)}")
     

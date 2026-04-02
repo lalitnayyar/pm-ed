@@ -3,6 +3,20 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { BoardData } from "@/lib/kanban";
 
+const SendIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <line x1="22" y1="2" x2="11" y2="13" />
+    <polygon points="22,2 15,22 11,13 2,9" />
+  </svg>
+);
+
+const CloseIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <line x1="18" y1="6" x2="6" y2="18" />
+    <line x1="6" y1="6" x2="18" y2="18" />
+  </svg>
+);
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -55,7 +69,10 @@ export const AiChat = ({
     setIsLoading(true);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60_000);
+    const timeoutId = setTimeout(
+      () => controller.abort(new Error("Request timed out — the AI is taking too long. Please try again.")),
+      120_000
+    );
 
     try {
       // Send request to backend AI endpoint
@@ -97,7 +114,16 @@ export const AiChat = ({
         onBoardUpdate(data.boardUpdate);
       }
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Unknown error";
+      // AbortController fires with a reason Error — use that message directly
+      // (avoids the cryptic "signal is aborted without reason" browser default)
+      let errorMsg = "Unknown error";
+      if (err instanceof DOMException && err.name === "AbortError") {
+        errorMsg = controller.signal.reason instanceof Error
+          ? controller.signal.reason.message
+          : "Request was cancelled.";
+      } else if (err instanceof Error) {
+        errorMsg = err.message;
+      }
       setError(errorMsg);
 
       // Add error message to chat
@@ -124,10 +150,10 @@ export const AiChat = ({
         <h2 className="text-lg font-semibold text-[var(--navy-dark)]">AI Assistant</h2>
         <button
           onClick={onClose}
-          className="text-[var(--gray-text)] hover:text-[var(--navy-dark)] transition"
+          className="rounded-lg p-1.5 text-[var(--gray-text)] hover:bg-[var(--surface)] hover:text-[var(--navy-dark)] transition"
           aria-label="Close chat"
         >
-          ✕
+          <CloseIcon />
         </button>
       </div>
 
@@ -197,9 +223,10 @@ export const AiChat = ({
           <button
             type="submit"
             disabled={!input.trim() || isLoading}
-            className="rounded-full bg-[var(--secondary-purple)] px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-shrink-0 rounded-full bg-[var(--secondary-purple)] p-2.5 text-white transition hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label="Send message"
           >
-            Send
+            <SendIcon />
           </button>
         </div>
       </form>
