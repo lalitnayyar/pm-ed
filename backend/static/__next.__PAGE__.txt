@@ -1,6 +1,6 @@
 1:"$Sreact.fragment"
-2:I[54828,["/_next/static/chunks/75a1433d2039b383.js"],"KanbanBoard"]
+2:I[54828,["/_next/static/chunks/5e78e0ecd7a1609d.js"],"KanbanBoard"]
 3:I[97367,["/_next/static/chunks/2f236954d6a65e12.js"],"OutletBoundary"]
 4:"$Sreact.suspense"
-0:{"buildId":"-8QKo4RiF4r8q0aARiy2e","rsc":["$","$1","c",{"children":[["$","$L2",null,{}],[["$","script","script-0",{"src":"/_next/static/chunks/75a1433d2039b383.js","async":true}]],["$","$L3",null,{"children":["$","$4",null,{"name":"Next.MetadataOutlet","children":"$@5"}]}]]}],"loading":null,"isPartial":false}
+0:{"buildId":"r71gqhtYLWSiItTKT-fK1","rsc":["$","$1","c",{"children":[["$","$L2",null,{}],[["$","script","script-0",{"src":"/_next/static/chunks/5e78e0ecd7a1609d.js","async":true}]],["$","$L3",null,{"children":["$","$4",null,{"name":"Next.MetadataOutlet","children":"$@5"}]}]]}],"loading":null,"isPartial":false}
 5:null

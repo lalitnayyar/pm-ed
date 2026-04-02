@@ -1,7 +1,12 @@
+export type CardPriority = "low" | "medium" | "high";
+
 export type Card = {
   id: string;
   title: string;
   details: string;
+  priority?: CardPriority | null;
+  due_date?: string | null;  // ISO date string YYYY-MM-DD
+  labels?: string[];
 };
 
 export type Column = {
