@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import type { Card, CardPriority } from "@/lib/kanban";
+import type { Card, CardPriority, ChecklistItem } from "@/lib/kanban";
+import { createId } from "@/lib/kanban";
 
 type EditCardModalProps = {
   card: Card;
@@ -34,7 +35,26 @@ export const EditCardModal = ({ card, onSave, onClose }: EditCardModalProps) => 
   const [priority, setPriority] = useState<CardPriority | "">(card.priority ?? "");
   const [dueDate, setDueDate] = useState(card.due_date ?? "");
   const [labelInput, setLabelInput] = useState((card.labels ?? []).join(", "));
+  const [checklist, setChecklist] = useState<ChecklistItem[]>(card.checklist ?? []);
+  const [newItemText, setNewItemText] = useState("");
   const [titleError, setTitleError] = useState<string | null>(null);
+
+  const addChecklistItem = () => {
+    const text = newItemText.trim();
+    if (!text) return;
+    setChecklist((prev) => [...prev, { id: createId("chk"), text, done: false }]);
+    setNewItemText("");
+  };
+
+  const toggleChecklistItem = (id: string) => {
+    setChecklist((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, done: !item.done } : item))
+    );
+  };
+
+  const deleteChecklistItem = (id: string) => {
+    setChecklist((prev) => prev.filter((item) => item.id !== id));
+  };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -61,6 +81,7 @@ export const EditCardModal = ({ card, onSave, onClose }: EditCardModalProps) => 
       priority: priority || null,
       due_date: dueDate || null,
       labels,
+      checklist,
     });
     onClose();
   };
@@ -175,6 +196,64 @@ export const EditCardModal = ({ card, onSave, onClose }: EditCardModalProps) => 
               className="w-full rounded-xl border border-[var(--stroke)] px-3 py-2 text-sm text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)] transition-colors"
               data-testid="edit-card-labels"
             />
+          </div>
+
+          {/* Checklist */}
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.2em] text-[var(--gray-text)]">
+              Checklist
+              {checklist.length > 0 && (
+                <span className="ml-2 font-normal normal-case tracking-normal text-[var(--gray-text)]">
+                  {checklist.filter((i) => i.done).length}/{checklist.length}
+                </span>
+              )}
+            </label>
+            {checklist.length > 0 && (
+              <ul className="mb-2 space-y-1" data-testid="checklist-items">
+                {checklist.map((item) => (
+                  <li key={item.id} className="flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-[var(--surface)]">
+                    <input
+                      type="checkbox"
+                      checked={item.done}
+                      onChange={() => toggleChecklistItem(item.id)}
+                      className="h-4 w-4 rounded border-[var(--stroke)] accent-[var(--primary-blue)]"
+                      data-testid={`checklist-item-${item.id}`}
+                    />
+                    <span className={`flex-1 text-sm ${item.done ? "line-through text-[var(--gray-text)]" : "text-[var(--navy-dark)]"}`}>
+                      {item.text}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => deleteChecklistItem(item.id)}
+                      className="text-[var(--gray-text)] hover:text-red-500 transition-colors"
+                      aria-label="Delete checklist item"
+                      data-testid={`delete-checklist-item-${item.id}`}
+                    >
+                      <XIcon />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newItemText}
+                onChange={(e) => setNewItemText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addChecklistItem(); } }}
+                placeholder="Add checklist item…"
+                className="flex-1 rounded-xl border border-[var(--stroke)] px-3 py-2 text-sm text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)] transition-colors"
+                data-testid="new-checklist-item-input"
+              />
+              <button
+                type="button"
+                onClick={addChecklistItem}
+                className="rounded-xl border border-[var(--stroke)] px-3 py-2 text-xs font-semibold text-[var(--navy-dark)] hover:bg-[var(--surface)] transition-colors"
+                data-testid="add-checklist-item-button"
+              >
+                Add
+              </button>
+            </div>
           </div>
 
           {/* Priority preview */}

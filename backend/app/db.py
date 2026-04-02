@@ -184,11 +184,30 @@ def init_db() -> None:
             """
         )
 
+        # ── activity_log ─────────────────────────────────────────────────────
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS activity_log (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              board_id INTEGER NOT NULL,
+              user_id INTEGER NOT NULL,
+              action TEXT NOT NULL,
+              target TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+              FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE,
+              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """
+        )
+
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)"
         )
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_activity_board ON activity_log(board_id, created_at DESC)"
         )
 
         # Ensure the default demo user exists with a known password
@@ -487,6 +506,152 @@ def delete_board(board_id: int, user_id: int) -> None:
 
         connection.execute("DELETE FROM boards WHERE id = ?", (board_id,))
         connection.commit()
+
+
+def search_cards(user_id: int, query: str, limit: int = 50) -> list:
+    """Search cards across all boards owned by user_id."""
+    from app.models import CardSearchResult
+    init_db()
+    db_path = get_db_path()
+    q = query.strip().lower()
+    if not q:
+        return []
+    with _connect(db_path) as connection:
+        rows = connection.execute(
+            "SELECT id, name, board_json FROM boards WHERE user_id = ? ORDER BY id ASC",
+            (user_id,),
+        ).fetchall()
+
+    results = []
+    for row in rows:
+        board_id = int(row["id"])
+        board_name = str(row["name"])
+        try:
+            board_data = BoardData.model_validate(json.loads(str(row["board_json"])))
+        except Exception:
+            continue
+
+        col_lookup: dict[str, str] = {}
+        for col in board_data.columns:
+            for card_id in col.cardIds:
+                col_lookup[card_id] = col.title
+
+        for card_id, card in board_data.cards.items():
+            if q in card.title.lower() or q in card.details.lower():
+                results.append(
+                    CardSearchResult(
+                        board_id=board_id,
+                        board_name=board_name,
+                        card_id=card_id,
+                        card_title=card.title,
+                        card_details=card.details,
+                        column_title=col_lookup.get(card_id, ""),
+                    )
+                )
+                if len(results) >= limit:
+                    return results
+    return results
+
+
+def log_activity(board_id: int, user_id: int, action: str, target: str = "") -> None:
+    """Record an activity entry for a board."""
+    init_db()
+    db_path = get_db_path()
+    with _connect(db_path) as connection:
+        connection.execute(
+            "INSERT INTO activity_log (board_id, user_id, action, target) VALUES (?, ?, ?, ?)",
+            (board_id, user_id, action, target),
+        )
+        connection.commit()
+
+
+def get_activity_log(board_id: int, user_id: int, limit: int = 50) -> list:
+    """Return recent activity entries for a board owned by user_id."""
+    from app.models import ActivityEntry
+    init_db()
+    db_path = get_db_path()
+    with _connect(db_path) as connection:
+        # Verify board ownership
+        row = connection.execute(
+            "SELECT id FROM boards WHERE id = ? AND user_id = ?", (board_id, user_id)
+        ).fetchone()
+        if not row:
+            raise ValueError("Board not found or access denied")
+
+        rows = connection.execute(
+            """
+            SELECT a.id, a.board_id, a.user_id, u.username, a.action, a.target, a.created_at
+            FROM activity_log a
+            JOIN users u ON u.id = a.user_id
+            WHERE a.board_id = ?
+            ORDER BY a.created_at DESC
+            LIMIT ?
+            """,
+            (board_id, limit),
+        ).fetchall()
+        return [
+            ActivityEntry(
+                id=int(r["id"]),
+                board_id=int(r["board_id"]),
+                user_id=int(r["user_id"]),
+                username=str(r["username"]),
+                action=str(r["action"]),
+                target=str(r["target"]),
+                created_at=str(r["created_at"]),
+            )
+            for r in rows
+        ]
+
+
+def update_user_profile(
+    user_id: int,
+    email: str | None,
+    current_password: str | None,
+    new_password: str | None,
+) -> UserResponse:
+    """Update user email and/or password. Raises ValueError on bad input."""
+    init_db()
+    db_path = get_db_path()
+    with _connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT id, username, email, password_hash, created_at FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError("User not found")
+
+        if new_password is not None:
+            if not current_password:
+                raise ValueError("Current password is required to set a new password")
+            if not row["password_hash"] or not verify_password(current_password, str(row["password_hash"])):
+                raise ValueError("Current password is incorrect")
+            connection.execute(
+                "UPDATE users SET password_hash = ? WHERE id = ?",
+                (hash_password(new_password), user_id),
+            )
+
+        if email is not None:
+            if email:
+                email_exists = connection.execute(
+                    "SELECT id FROM users WHERE email = ? AND id != ?", (email, user_id)
+                ).fetchone()
+                if email_exists:
+                    raise ValueError("Email address is already in use")
+            connection.execute(
+                "UPDATE users SET email = ? WHERE id = ?",
+                (email or None, user_id),
+            )
+
+        connection.commit()
+        updated = connection.execute(
+            "SELECT id, username, email, created_at FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        return UserResponse(
+            id=int(updated["id"]),
+            username=str(updated["username"]),
+            email=updated["email"],
+            created_at=str(updated["created_at"]),
+        )
 
 
 def get_default_board_id(user_id: int) -> int | None:

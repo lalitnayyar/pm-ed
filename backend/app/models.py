@@ -3,6 +3,12 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 
+class ChecklistItem(BaseModel):
+    id: str
+    text: str
+    done: bool = False
+
+
 class Card(BaseModel):
     id: str
     title: str
@@ -10,6 +16,7 @@ class Card(BaseModel):
     priority: Literal["low", "medium", "high"] | None = None
     due_date: str | None = None  # ISO date string YYYY-MM-DD
     labels: list[str] = Field(default_factory=list)
+    checklist: list[ChecklistItem] = Field(default_factory=list)
 
 
 class Column(BaseModel):
@@ -78,6 +85,12 @@ class AuthResponse(BaseModel):
     user: UserResponse
 
 
+class UpdateProfileRequest(BaseModel):
+    email: str | None = Field(default=None, max_length=255)
+    current_password: str | None = None
+    new_password: str | None = Field(default=None, min_length=6, max_length=128)
+
+
 # ── Multi-board models ────────────────────────────────────────────────────────
 
 class BoardInfo(BaseModel):
@@ -132,6 +145,38 @@ class UpdateBoardRequest(BaseModel):
             if len(card.details) > 2000:
                 raise ValueError("Card details exceeds 2000 characters")
         return self
+
+
+# ── Activity log models ───────────────────────────────────────────────────────
+
+class ActivityEntry(BaseModel):
+    id: int
+    board_id: int
+    user_id: int
+    username: str
+    action: str          # e.g. "added card", "moved card", "renamed board"
+    target: str          # e.g. card title or column name
+    created_at: str
+
+
+class ActivityLogResponse(BaseModel):
+    entries: list[ActivityEntry]
+
+
+# ── Search models ─────────────────────────────────────────────────────────────
+
+class CardSearchResult(BaseModel):
+    board_id: int
+    board_name: str
+    card_id: str
+    card_title: str
+    card_details: str
+    column_title: str
+
+
+class SearchResponse(BaseModel):
+    results: list[CardSearchResult]
+    total: int
 
 
 # ── AI models ─────────────────────────────────────────────────────────────────

@@ -8,20 +8,25 @@ from app.ai import MODEL_NAME, ask_openrouter, ask_openrouter_kanban
 from app.db import (
     create_board,
     delete_board,
+    get_activity_log,
     get_board,
     get_board_by_id,
     get_default_board_id,
     get_user_by_token,
     list_boards,
+    log_activity,
     login_user,
     logout_user,
     register_user,
     save_board,
     save_board_by_id,
+    search_cards,
     update_board_meta,
+    update_user_profile,
     init_db,
 )
 from app.models import (
+    ActivityLogResponse,
     AiChatRequest,
     AiChatResponse,
     AiPingRequest,
@@ -32,8 +37,10 @@ from app.models import (
     BoardResponse,
     BoardUpdateRequest,
     CreateBoardRequest,
+    SearchResponse,
     UpdateBoardMetaRequest,
     UpdateBoardRequest,
+    UpdateProfileRequest,
     UserCreate,
     UserLogin,
     UserResponse,
@@ -171,6 +178,22 @@ def get_me(current_user: UserResponse = Depends(get_current_user)) -> UserRespon
     return current_user
 
 
+@app.patch("/api/users/me", response_model=UserResponse)
+def patch_me(
+    payload: UpdateProfileRequest,
+    current_user: UserResponse = Depends(get_current_user),
+) -> UserResponse:
+    try:
+        return update_user_profile(
+            current_user.id,
+            email=payload.email,
+            current_password=payload.current_password,
+            new_password=payload.new_password,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 # ── Multi-board endpoints ─────────────────────────────────────────────────────
 
 @app.get("/api/boards", response_model=BoardListResponse)
@@ -227,6 +250,8 @@ def put_board_detail(
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
+    log_activity(board_id, current_user.id, "updated board", "")
+
     result = get_board_by_id(board_id, current_user.id)
     if not result:
         raise HTTPException(status_code=404, detail="Board not found")
@@ -247,9 +272,12 @@ def patch_board_meta(
     current_user: UserResponse = Depends(get_current_user),
 ) -> BoardDetailResponse:
     try:
-        update_board_meta(board_id, current_user.id, payload.name, payload.description)
+        info = update_board_meta(board_id, current_user.id, payload.name, payload.description)
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+    if payload.name is not None:
+        log_activity(board_id, current_user.id, "renamed board", info.name)
 
     result = get_board_by_id(board_id, current_user.id)
     if not result:
@@ -273,6 +301,29 @@ def remove_board(
         delete_board(board_id, current_user.id)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/boards/{board_id}/activity", response_model=ActivityLogResponse)
+def get_board_activity(
+    board_id: int,
+    current_user: UserResponse = Depends(get_current_user),
+) -> ActivityLogResponse:
+    try:
+        entries = get_activity_log(board_id, current_user.id)
+        return ActivityLogResponse(entries=entries)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.get("/api/search", response_model=SearchResponse)
+def search_endpoint(
+    q: str = "",
+    current_user: UserResponse = Depends(get_current_user),
+) -> SearchResponse:
+    if not q.strip():
+        return SearchResponse(results=[], total=0)
+    results = search_cards(current_user.id, q)
+    return SearchResponse(results=results, total=len(results))
 
 
 # ── Legacy board endpoints (backward-compat) ──────────────────────────────────

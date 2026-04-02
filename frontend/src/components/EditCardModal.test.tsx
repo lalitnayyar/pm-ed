@@ -11,6 +11,7 @@ const mockCard: Card = {
   priority: null,
   due_date: null,
   labels: [],
+  checklist: [],
 };
 
 describe("EditCardModal", () => {
@@ -125,6 +126,68 @@ describe("EditCardModal", () => {
     await userEvent.click(screen.getByTestId("save-card-button"));
     expect(mockOnSave).toHaveBeenCalledWith(
       expect.objectContaining({ priority: null })
+    );
+  });
+
+  it("adds a checklist item", async () => {
+    render(<EditCardModal card={mockCard} onSave={mockOnSave} onClose={mockOnClose} />);
+    fireEvent.change(screen.getByTestId("new-checklist-item-input"), { target: { value: "Do something" } });
+    await userEvent.click(screen.getByTestId("add-checklist-item-button"));
+    expect(screen.getByTestId("checklist-items")).toBeInTheDocument();
+    expect(screen.getByText("Do something")).toBeInTheDocument();
+  });
+
+  it("saves checklist items with card", async () => {
+    render(<EditCardModal card={mockCard} onSave={mockOnSave} onClose={mockOnClose} />);
+    fireEvent.change(screen.getByTestId("new-checklist-item-input"), { target: { value: "Task one" } });
+    await userEvent.click(screen.getByTestId("add-checklist-item-button"));
+    await userEvent.click(screen.getByTestId("save-card-button"));
+    expect(mockOnSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checklist: expect.arrayContaining([expect.objectContaining({ text: "Task one", done: false })]),
+      })
+    );
+  });
+
+  it("adds checklist item via Enter key", async () => {
+    render(<EditCardModal card={mockCard} onSave={mockOnSave} onClose={mockOnClose} />);
+    const input = screen.getByTestId("new-checklist-item-input");
+    fireEvent.change(input, { target: { value: "Enter item" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByText("Enter item")).toBeInTheDocument();
+  });
+
+  it("pre-fills existing checklist items", () => {
+    const cardWithChecklist: Card = {
+      ...mockCard,
+      checklist: [{ id: "chk-1", text: "Existing task", done: false }],
+    };
+    render(<EditCardModal card={cardWithChecklist} onSave={mockOnSave} onClose={mockOnClose} />);
+    expect(screen.getByText("Existing task")).toBeInTheDocument();
+  });
+
+  it("deletes a checklist item", async () => {
+    const cardWithChecklist: Card = {
+      ...mockCard,
+      checklist: [{ id: "chk-abc", text: "Remove me", done: false }],
+    };
+    render(<EditCardModal card={cardWithChecklist} onSave={mockOnSave} onClose={mockOnClose} />);
+    await userEvent.click(screen.getByTestId("delete-checklist-item-chk-abc"));
+    expect(screen.queryByText("Remove me")).not.toBeInTheDocument();
+  });
+
+  it("toggles checklist item done state", async () => {
+    const cardWithChecklist: Card = {
+      ...mockCard,
+      checklist: [{ id: "chk-xyz", text: "Toggle me", done: false }],
+    };
+    render(<EditCardModal card={cardWithChecklist} onSave={mockOnSave} onClose={mockOnClose} />);
+    await userEvent.click(screen.getByTestId("checklist-item-chk-xyz"));
+    await userEvent.click(screen.getByTestId("save-card-button"));
+    expect(mockOnSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checklist: expect.arrayContaining([expect.objectContaining({ id: "chk-xyz", done: true })]),
+      })
     );
   });
 });

@@ -1,5 +1,11 @@
 export type CardPriority = "low" | "medium" | "high";
 
+export type ChecklistItem = {
+  id: string;
+  text: string;
+  done: boolean;
+};
+
 export type Card = {
   id: string;
   title: string;
@@ -7,6 +13,7 @@ export type Card = {
   priority?: CardPriority | null;
   due_date?: string | null;  // ISO date string YYYY-MM-DD
   labels?: string[];
+  checklist?: ChecklistItem[];
 };
 
 export type Column = {

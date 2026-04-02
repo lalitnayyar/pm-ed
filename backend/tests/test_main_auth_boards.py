@@ -121,6 +121,78 @@ class TestGetMeEndpoint:
         assert resp.status_code == 401
 
 
+# ── PATCH /api/users/me ───────────────────────────────────────────────────────
+
+class TestUpdateProfileEndpoint:
+    def test_update_email(self) -> None:
+        data = _register("userA")
+        token = data["token"]
+        resp = client.patch(
+            "/api/users/me",
+            json={"email": "usera@example.com"},
+            headers=_auth_headers(token),
+        )
+        assert resp.status_code == 200
+        assert resp.json()["email"] == "usera@example.com"
+
+    def test_clear_email(self) -> None:
+        data = _register("userB")
+        token = data["token"]
+        client.patch("/api/users/me", json={"email": "b@example.com"}, headers=_auth_headers(token))
+        resp = client.patch("/api/users/me", json={"email": ""}, headers=_auth_headers(token))
+        assert resp.status_code == 200
+        assert resp.json()["email"] is None
+
+    def test_change_password(self) -> None:
+        data = _register("userC", password="oldpass1")
+        token = data["token"]
+        resp = client.patch(
+            "/api/users/me",
+            json={"current_password": "oldpass1", "new_password": "newpass1"},
+            headers=_auth_headers(token),
+        )
+        assert resp.status_code == 200
+        # Verify new password works for login
+        login_resp = client.post("/api/auth/login", json={"username": "userC", "password": "newpass1"})
+        assert login_resp.status_code == 200
+
+    def test_wrong_current_password_returns_400(self) -> None:
+        data = _register("userD", password="correct1")
+        token = data["token"]
+        resp = client.patch(
+            "/api/users/me",
+            json={"current_password": "wrong123", "new_password": "newpass1"},
+            headers=_auth_headers(token),
+        )
+        assert resp.status_code == 400
+        assert "incorrect" in resp.json()["detail"].lower()
+
+    def test_new_password_without_current_returns_400(self) -> None:
+        data = _register("userE")
+        token = data["token"]
+        resp = client.patch(
+            "/api/users/me",
+            json={"new_password": "newpass1"},
+            headers=_auth_headers(token),
+        )
+        assert resp.status_code == 400
+
+    def test_duplicate_email_returns_400(self) -> None:
+        d1 = _register("userF")
+        d2 = _register("userG")
+        client.patch("/api/users/me", json={"email": "shared@example.com"}, headers=_auth_headers(d1["token"]))
+        resp = client.patch(
+            "/api/users/me",
+            json={"email": "shared@example.com"},
+            headers=_auth_headers(d2["token"]),
+        )
+        assert resp.status_code == 400
+
+    def test_requires_auth(self) -> None:
+        resp = client.patch("/api/users/me", json={"email": "x@x.com"})
+        assert resp.status_code == 401
+
+
 # ── GET /api/boards ───────────────────────────────────────────────────────────
 
 class TestGetBoardsList:
@@ -310,3 +382,63 @@ class TestDeleteBoard:
 
         resp = client.delete(f"/api/boards/{board_id}", headers=_auth_headers(data2["token"]))
         assert resp.status_code == 400
+
+# ── GET /api/boards/{id}/activity ─────────────────────────────────────────────
+
+class TestBoardActivityLog:
+    def _get_board_id(self, token: str) -> int:
+        return client.get("/api/boards", headers=_auth_headers(token)).json()["boards"][0]["id"]
+
+    def test_empty_activity_log(self) -> None:
+        data = _register("act_user1")
+        board_id = self._get_board_id(data["token"])
+        resp = client.get(f"/api/boards/{board_id}/activity", headers=_auth_headers(data["token"]))
+        assert resp.status_code == 200
+        assert resp.json()["entries"] == []
+
+    def test_activity_logged_on_board_update(self) -> None:
+        data = _register("act_user2")
+        token = data["token"]
+        board_id = self._get_board_id(token)
+        # Fetch the default board data
+        board_resp = client.get(f"/api/boards/{board_id}", headers=_auth_headers(token))
+        board = board_resp.json()["board"]
+        # Save it (triggers activity log)
+        client.put(f"/api/boards/{board_id}", json={"board": board}, headers=_auth_headers(token))
+        resp = client.get(f"/api/boards/{board_id}/activity", headers=_auth_headers(token))
+        entries = resp.json()["entries"]
+        assert len(entries) == 1
+        assert entries[0]["action"] == "updated board"
+        assert entries[0]["username"] == "act_user2"
+
+    def test_activity_logged_on_rename(self) -> None:
+        data = _register("act_user3")
+        token = data["token"]
+        board_id = self._get_board_id(token)
+        client.patch(f"/api/boards/{board_id}", json={"name": "Renamed"}, headers=_auth_headers(token))
+        resp = client.get(f"/api/boards/{board_id}/activity", headers=_auth_headers(token))
+        entries = resp.json()["entries"]
+        assert any(e["action"] == "renamed board" for e in entries)
+
+    def test_activity_log_requires_auth(self) -> None:
+        data = _register("act_user4")
+        board_id = self._get_board_id(data["token"])
+        resp = client.get(f"/api/boards/{board_id}/activity")
+        assert resp.status_code == 401
+
+    def test_cannot_access_other_users_activity(self) -> None:
+        d1 = _register("act_user5")
+        d2 = _register("act_user6")
+        board_id = self._get_board_id(d1["token"])
+        resp = client.get(f"/api/boards/{board_id}/activity", headers=_auth_headers(d2["token"]))
+        assert resp.status_code == 404
+
+    def test_multiple_updates_appear_in_log(self) -> None:
+        data = _register("act_user7")
+        token = data["token"]
+        board_id = self._get_board_id(token)
+        board = client.get(f"/api/boards/{board_id}", headers=_auth_headers(token)).json()["board"]
+        client.put(f"/api/boards/{board_id}", json={"board": board}, headers=_auth_headers(token))
+        client.put(f"/api/boards/{board_id}", json={"board": board}, headers=_auth_headers(token))
+        resp = client.get(f"/api/boards/{board_id}/activity", headers=_auth_headers(token))
+        assert len(resp.json()["entries"]) == 2

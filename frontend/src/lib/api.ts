@@ -125,3 +125,79 @@ export const apiBoardDelete = async (token: string, boardId: number): Promise<vo
     throw new Error(err.detail ?? "Failed to delete board");
   }
 };
+
+// ── User profile ──────────────────────────────────────────────────────────────
+
+export type UserProfile = {
+  id: number;
+  username: string;
+  email: string | null;
+  created_at: string;
+};
+
+export const apiGetMe = async (token: string): Promise<UserProfile> => {
+  const resp = await fetch("/api/users/me", { headers: authHeader(token) });
+  if (!resp.ok) throw new Error("Failed to fetch profile");
+  return resp.json() as Promise<UserProfile>;
+};
+
+// ── Search ────────────────────────────────────────────────────────────────────
+
+export type CardSearchResult = {
+  board_id: number;
+  board_name: string;
+  card_id: string;
+  card_title: string;
+  card_details: string;
+  column_title: string;
+};
+
+export const apiSearch = async (
+  token: string,
+  query: string
+): Promise<CardSearchResult[]> => {
+  const resp = await fetch(`/api/search?q=${encodeURIComponent(query)}`, {
+    headers: authHeader(token),
+  });
+  if (!resp.ok) throw new Error("Search failed");
+  const data = (await resp.json()) as { results: CardSearchResult[]; total: number };
+  return data.results;
+};
+
+// ── Activity log ─────────────────────────────────────────────────────────────
+
+export type ActivityEntry = {
+  id: number;
+  board_id: number;
+  user_id: number;
+  username: string;
+  action: string;
+  target: string;
+  created_at: string;
+};
+
+export const apiBoardActivity = async (
+  token: string,
+  boardId: number
+): Promise<ActivityEntry[]> => {
+  const resp = await fetch(`/api/boards/${boardId}/activity`, { headers: authHeader(token) });
+  if (!resp.ok) throw new Error("Failed to load activity");
+  const data = (await resp.json()) as { entries: ActivityEntry[] };
+  return data.entries;
+};
+
+export const apiUpdateProfile = async (
+  token: string,
+  payload: { email?: string; current_password?: string; new_password?: string }
+): Promise<UserProfile> => {
+  const resp = await fetch("/api/users/me", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeader(token) },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const err = (await resp.json().catch(() => ({}))) as { detail?: string };
+    throw new Error(err.detail ?? "Failed to update profile");
+  }
+  return resp.json() as Promise<UserProfile>;
+};
