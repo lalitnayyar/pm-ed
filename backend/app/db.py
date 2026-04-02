@@ -114,10 +114,9 @@ def _migrate_boards_to_multi(connection: sqlite3.Connection) -> None:
     connection.execute("DROP TABLE boards_legacy")
 
 
-def _users_table_has_password(connection: sqlite3.Connection) -> bool:
+def _users_table_columns(connection: sqlite3.Connection) -> set[str]:
     cursor = connection.execute("PRAGMA table_info(users)")
-    cols = {row["name"] for row in cursor.fetchall()}
-    return "password_hash" in cols
+    return {row["name"] for row in cursor.fetchall()}
 
 
 def init_db() -> None:
@@ -131,23 +130,23 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS users (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               username TEXT NOT NULL UNIQUE,
-              email TEXT UNIQUE,
+              email TEXT,
               password_hash TEXT,
               created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             )
             """
         )
 
-        # Add password_hash/email columns if migrating from old schema
-        if not _users_table_has_password(connection):
-            try:
-                connection.execute("ALTER TABLE users ADD COLUMN email TEXT UNIQUE")
-            except sqlite3.OperationalError:
-                pass
-            try:
-                connection.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
-            except sqlite3.OperationalError:
-                pass
+        # Ensure optional columns exist (add individually so partial migrations work)
+        existing_cols = _users_table_columns(connection)
+        if "password_hash" not in existing_cols:
+            connection.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+        if "email" not in existing_cols:
+            # SQLite does not support ADD COLUMN ... UNIQUE; use a separate index
+            connection.execute("ALTER TABLE users ADD COLUMN email TEXT")
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL"
+        )
 
         # ── boards ──────────────────────────────────────────────────────────
         boards_exists = connection.execute(
