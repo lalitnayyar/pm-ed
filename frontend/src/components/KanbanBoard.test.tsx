@@ -37,6 +37,26 @@ function mockBoardFetch(extraMocks?: Record<string, unknown>) {
         status: 200, headers: { "Content-Type": "application/json" },
       }));
     }
+    if (path.includes("/api/auth/logout")) {
+      return Promise.resolve(new Response(null, { status: 204 }));
+    }
+    if (path.includes("/api/users/me")) {
+      return Promise.resolve(new Response(JSON.stringify(MOCK_USER), {
+        status: 200, headers: { "Content-Type": "application/json" },
+      }));
+    }
+    if (path.includes("/api/search")) {
+      const mockResults = (extraMocks?.["/api/search"] as unknown[]) ?? [];
+      return Promise.resolve(new Response(JSON.stringify({ results: mockResults, total: mockResults.length }), {
+        status: 200, headers: { "Content-Type": "application/json" },
+      }));
+    }
+    if (path.match(/\/api\/boards\/\d+\/activity/)) {
+      const mockEntries = (extraMocks?.["/api/boards/activity"] as unknown[]) ?? [];
+      return Promise.resolve(new Response(JSON.stringify({ entries: mockEntries }), {
+        status: 200, headers: { "Content-Type": "application/json" },
+      }));
+    }
     if (path.includes("/api/boards") && !path.match(/\/api\/boards\/\d/)) {
       // GET /api/boards or POST /api/boards
       if (extraMocks?.["/api/boards"]) {
@@ -57,15 +77,6 @@ function mockBoardFetch(extraMocks?: Record<string, unknown>) {
       return Promise.resolve(new Response(JSON.stringify({
         username: "user", reply: "done", boardUpdate: null, updated_at: null,
       }), { status: 200, headers: { "Content-Type": "application/json" } }));
-    }
-    if (path.includes("/api/auth/logout")) {
-      return Promise.resolve(new Response(null, { status: 204 }));
-    }
-    // Silently ignore board PUT (save)
-    if (path.match(/\/api\/boards\/\d+/) ) {
-      return Promise.resolve(new Response(JSON.stringify(MOCK_BOARD_DETAIL), {
-        status: 200, headers: { "Content-Type": "application/json" },
-      }));
     }
     return Promise.reject(new Error(`Unhandled fetch: ${path}`));
   });
@@ -200,5 +211,85 @@ describe("KanbanBoard", () => {
     expect(screen.getByTestId("edit-card-modal")).toBeInTheDocument();
     await userEvent.click(screen.getByTestId("close-edit-modal"));
     expect(screen.queryByTestId("edit-card-modal")).not.toBeInTheDocument();
+  });
+
+  it("shows search input in header", async () => {
+    setAuthSession();
+    render(<KanbanBoard />);
+    await screen.findAllByTestId(/column-/i);
+    expect(screen.getByTestId("search-input")).toBeInTheDocument();
+  });
+
+  it("shows search results dropdown when typing", async () => {
+    const mockResult = {
+      board_id: 1, board_name: "My Board", card_id: "card-1",
+      card_title: "Found Card", card_details: "details", column_title: "Backlog",
+    };
+    mockBoardFetch({ "/api/search": [mockResult] });
+    setAuthSession();
+    render(<KanbanBoard />);
+    await screen.findAllByTestId(/column-/i);
+
+    fireEvent.change(screen.getByTestId("search-input"), { target: { value: "Found" } });
+    await screen.findByTestId("search-dropdown");
+    await screen.findByTestId("search-result-card-1");
+    expect(screen.getByText("Found Card")).toBeInTheDocument();
+  });
+
+  it("shows empty search state when no results", async () => {
+    mockBoardFetch({ "/api/search": [] });
+    setAuthSession();
+    render(<KanbanBoard />);
+    await screen.findAllByTestId(/column-/i);
+
+    fireEvent.change(screen.getByTestId("search-input"), { target: { value: "nomatch" } });
+    await screen.findByTestId("search-dropdown");
+    expect(screen.getByText(/no results found/i)).toBeInTheDocument();
+  });
+
+  it("opens and closes activity log panel", async () => {
+    mockBoardFetch({
+      "/api/boards/activity": [{
+        id: 1, board_id: 1, user_id: 1, username: "user",
+        action: "updated board", target: "", created_at: "2026-01-01T00:00:00Z",
+      }],
+    });
+    setAuthSession();
+    render(<KanbanBoard />);
+    await screen.findAllByTestId(/column-/i);
+
+    await userEvent.click(screen.getByTestId("activity-log-button"));
+    await screen.findByTestId("activity-panel");
+    await screen.findByTestId("activity-entries");
+    expect(screen.getByText(/updated board/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("close-activity-panel"));
+    expect(screen.queryByTestId("activity-panel")).not.toBeInTheDocument();
+  });
+
+  it("shows empty activity log message when no entries", async () => {
+    mockBoardFetch({ "/api/boards/activity": [] });
+    setAuthSession();
+    render(<KanbanBoard />);
+    await screen.findAllByTestId(/column-/i);
+
+    await userEvent.click(screen.getByTestId("activity-log-button"));
+    await screen.findByTestId("activity-panel");
+    await waitFor(() => {
+      expect(screen.getByText(/no activity yet/i)).toBeInTheDocument();
+    });
+  });
+
+  it("opens profile modal when username is clicked", async () => {
+    setAuthSession();
+    render(<KanbanBoard />);
+    await screen.findAllByTestId(/column-/i);
+
+    await userEvent.click(screen.getByTestId("current-user"));
+    await screen.findByTestId("profile-modal");
+    expect(screen.getByTestId("profile-modal")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("close-profile-modal"));
+    expect(screen.queryByTestId("profile-modal")).not.toBeInTheDocument();
   });
 });

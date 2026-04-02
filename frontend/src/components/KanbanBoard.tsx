@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -16,6 +16,7 @@ import { KanbanCardPreview } from "@/components/KanbanCardPreview";
 import { AiChat } from "@/components/AiChat";
 import { EditCardModal } from "@/components/EditCardModal";
 import { BoardSelector } from "@/components/BoardSelector";
+import { ProfileModal } from "@/components/ProfileModal";
 import {
   getStoredToken,
   getStoredUser,
@@ -33,7 +34,12 @@ import {
   apiBoardSave,
   apiBoardDelete,
   apiBoardRename,
+  apiBoardActivity,
+  apiSearch,
   type BoardInfo,
+  type ActivityEntry,
+  type CardSearchResult,
+  type UserProfile,
 } from "@/lib/api";
 import { createId, initialData, moveCard, type BoardData, type Card } from "@/lib/kanban";
 
@@ -41,6 +47,19 @@ const AiIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M12 2a5 5 0 0 1 5 5c0 2.5-1.5 4.5-3.5 5.5L15 21H9l1.5-8.5C8.5 11.5 7 9.5 7 7a5 5 0 0 1 5-5z" />
     <line x1="9" y1="21" x2="15" y2="21" />
+  </svg>
+);
+
+const SearchIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="11" cy="11" r="8" />
+    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+  </svg>
+);
+
+const ActivityIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
   </svg>
 );
 
@@ -72,6 +91,16 @@ export const KanbanBoard = () => {
   // ── UI state ───────────────────────────────────────────────────────────────
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [editingCard, setEditingCard] = useState<Card | null>(null);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [profileUser, setProfileUser] = useState<UserProfile | null>(null);
+  const [isActivityOpen, setIsActivityOpen] = useState(false);
+  const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<CardSearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
 
   // ── Init: restore session from localStorage ────────────────────────────────
   useEffect(() => {
@@ -189,6 +218,59 @@ export const KanbanBoard = () => {
     setPassword("");
     setEmail("");
   };
+
+  // ── Profile handler ───────────────────────────────────────────────────────
+  const handleOpenProfile = () => {
+    if (!user || !token) return;
+    setProfileUser({ id: 0, username: user.username, email: user.email ?? null, created_at: "" });
+    setIsProfileOpen(true);
+  };
+
+  // ── Activity log handler ──────────────────────────────────────────────────
+  const handleOpenActivity = useCallback(async () => {
+    if (!token || !activeBoardId) return;
+    setIsActivityOpen(true);
+    setActivityLoading(true);
+    try {
+      const entries = await apiBoardActivity(token, activeBoardId);
+      setActivityEntries(entries);
+    } catch {
+      setActivityEntries([]);
+    } finally {
+      setActivityLoading(false);
+    }
+  }, [token, activeBoardId]);
+
+  // ── Search handler ────────────────────────────────────────────────────────
+  const handleSearch = useCallback(async (q: string) => {
+    setSearchQuery(q);
+    if (!token || !q.trim()) {
+      setSearchResults([]);
+      setShowSearchDropdown(false);
+      return;
+    }
+    setIsSearching(true);
+    setShowSearchDropdown(true);
+    try {
+      const results = await apiSearch(token, q);
+      setSearchResults(results);
+    } catch {
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  }, [token]);
+
+  // Close search dropdown when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setShowSearchDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   // ── Board management handlers ──────────────────────────────────────────────
   const handleSelectBoard = (boardId: number) => {
@@ -459,12 +541,71 @@ export const KanbanBoard = () => {
               onRename={(id, name) => handleRenameBoard(id, name)}
             />
           </div>
+
+          {/* Search bar */}
+          <div className="relative flex-1 min-w-[180px] max-w-xs" ref={searchRef}>
+            <div className="flex items-center gap-2 rounded-xl border border-[var(--stroke)] bg-white px-3 py-2">
+              <SearchIcon />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => void handleSearch(e.target.value)}
+                placeholder="Search cards…"
+                className="flex-1 bg-transparent text-xs text-[var(--navy-dark)] outline-none placeholder:text-[var(--gray-text)]"
+                data-testid="search-input"
+              />
+            </div>
+            {showSearchDropdown && (
+              <div className="absolute left-0 right-0 top-full mt-1 z-40 rounded-xl border border-[var(--stroke)] bg-white shadow-lg overflow-hidden" data-testid="search-dropdown">
+                {isSearching ? (
+                  <p className="px-4 py-3 text-xs text-[var(--gray-text)]">Searching…</p>
+                ) : searchResults.length === 0 ? (
+                  <p className="px-4 py-3 text-xs text-[var(--gray-text)]">No results found.</p>
+                ) : (
+                  <ul>
+                    {searchResults.map((r) => (
+                      <li key={`${r.board_id}-${r.card_id}`}>
+                        <button
+                          type="button"
+                          className="w-full px-4 py-2.5 text-left hover:bg-[var(--surface)] transition-colors"
+                          onClick={() => {
+                            if (r.board_id !== activeBoardId) handleSelectBoard(r.board_id);
+                            setShowSearchDropdown(false);
+                            setSearchQuery("");
+                          }}
+                          data-testid={`search-result-${r.card_id}`}
+                        >
+                          <p className="text-xs font-semibold text-[var(--navy-dark)] truncate">{r.card_title}</p>
+                          <p className="text-[10px] text-[var(--gray-text)]">{r.board_name} · {r.column_title}</p>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="flex items-center gap-2 flex-shrink-0">
             {user && (
-              <span className="text-xs text-[var(--gray-text)]" data-testid="current-user">
+              <button
+                type="button"
+                onClick={handleOpenProfile}
+                className="text-xs text-[var(--gray-text)] hover:text-[var(--navy-dark)] hover:underline transition-colors"
+                data-testid="current-user"
+              >
                 {user.username}
-              </span>
+              </button>
             )}
+            <button
+              type="button"
+              onClick={() => void handleOpenActivity()}
+              className="flex items-center gap-1.5 rounded-full border border-[var(--stroke)] px-3 py-2 text-xs font-semibold text-[var(--gray-text)] transition hover:text-[var(--navy-dark)]"
+              data-testid="activity-log-button"
+            >
+              <ActivityIcon />
+              Activity
+            </button>
             <button
               type="button"
               onClick={() => setIsChatOpen(true)}
@@ -526,6 +667,61 @@ export const KanbanBoard = () => {
           onSave={handleSaveCard}
           onClose={() => setEditingCard(null)}
         />
+      )}
+
+      {isProfileOpen && profileUser && token && (
+        <ProfileModal
+          token={token}
+          user={profileUser}
+          onClose={() => setIsProfileOpen(false)}
+          onUpdated={(updated) => {
+            setProfileUser(updated);
+            if (user) setStoredAuth(token, { ...user, email: updated.email });
+          }}
+        />
+      )}
+
+      {/* Activity log panel */}
+      {isActivityOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-end bg-black/30 backdrop-blur-sm p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setIsActivityOpen(false); }}
+          data-testid="activity-panel"
+        >
+          <div className="mt-16 mr-2 w-full max-w-sm rounded-3xl border border-[var(--stroke)] bg-white shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--stroke)]">
+              <h2 className="font-display text-sm font-semibold text-[var(--navy-dark)]">Activity Log</h2>
+              <button
+                type="button"
+                onClick={() => setIsActivityOpen(false)}
+                className="text-xs text-[var(--gray-text)] hover:text-[var(--navy-dark)] transition-colors"
+                data-testid="close-activity-panel"
+              >
+                Close
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto p-4">
+              {activityLoading ? (
+                <p className="text-xs text-[var(--gray-text)]">Loading…</p>
+              ) : activityEntries.length === 0 ? (
+                <p className="text-xs text-[var(--gray-text)]">No activity yet on this board.</p>
+              ) : (
+                <ul className="space-y-2" data-testid="activity-entries">
+                  {activityEntries.map((entry) => (
+                    <li key={entry.id} className="flex flex-col gap-0.5 rounded-xl bg-[var(--surface)] px-3 py-2">
+                      <p className="text-xs text-[var(--navy-dark)]">
+                        <span className="font-semibold">{entry.username}</span>{" "}
+                        {entry.action}
+                        {entry.target ? ` — ${entry.target}` : ""}
+                      </p>
+                      <p className="text-[10px] text-[var(--gray-text)]">{entry.created_at}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       <AiChat
