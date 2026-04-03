@@ -39,7 +39,6 @@ import {
   type BoardInfo,
   type ActivityEntry,
   type CardSearchResult,
-  type UserProfile,
 } from "@/lib/api";
 import { createId, initialData, moveCard, type BoardData, type Card } from "@/lib/kanban";
 
@@ -92,7 +91,6 @@ export const KanbanBoard = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [editingCard, setEditingCard] = useState<Card | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [profileUser, setProfileUser] = useState<UserProfile | null>(null);
   const [isActivityOpen, setIsActivityOpen] = useState(false);
   const [activityEntries, setActivityEntries] = useState<ActivityEntry[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
@@ -101,6 +99,7 @@ export const KanbanBoard = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Init: restore session from localStorage ────────────────────────────────
   useEffect(() => {
@@ -222,7 +221,6 @@ export const KanbanBoard = () => {
   // ── Profile handler ───────────────────────────────────────────────────────
   const handleOpenProfile = () => {
     if (!user || !token) return;
-    setProfileUser({ id: 0, username: user.username, email: user.email ?? null, created_at: "" });
     setIsProfileOpen(true);
   };
 
@@ -242,23 +240,22 @@ export const KanbanBoard = () => {
   }, [token, activeBoardId]);
 
   // ── Search handler ────────────────────────────────────────────────────────
-  const handleSearch = useCallback(async (q: string) => {
+  const handleSearch = useCallback((q: string) => {
     setSearchQuery(q);
     if (!token || !q.trim()) {
       setSearchResults([]);
       setShowSearchDropdown(false);
       return;
     }
-    setIsSearching(true);
     setShowSearchDropdown(true);
-    try {
-      const results = await apiSearch(token, q);
-      setSearchResults(results);
-    } catch {
-      setSearchResults([]);
-    } finally {
-      setIsSearching(false);
-    }
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      setIsSearching(true);
+      void apiSearch(token, q)
+        .then((results) => setSearchResults(results))
+        .catch(() => setSearchResults([]))
+        .finally(() => setIsSearching(false));
+    }, 300);
   }, [token]);
 
   // Close search dropdown when clicking outside
@@ -549,7 +546,7 @@ export const KanbanBoard = () => {
               <input
                 type="text"
                 value={searchQuery}
-                onChange={(e) => void handleSearch(e.target.value)}
+                onChange={(e) => handleSearch(e.target.value)}
                 placeholder="Search cards…"
                 className="flex-1 bg-transparent text-xs text-[var(--navy-dark)] outline-none placeholder:text-[var(--gray-text)]"
                 data-testid="search-input"
@@ -669,14 +666,14 @@ export const KanbanBoard = () => {
         />
       )}
 
-      {isProfileOpen && profileUser && token && (
+      {isProfileOpen && user && token && (
         <ProfileModal
           token={token}
-          user={profileUser}
+          user={user}
           onClose={() => setIsProfileOpen(false)}
           onUpdated={(updated) => {
-            setProfileUser(updated);
-            if (user) setStoredAuth(token, { ...user, email: updated.email });
+            setUser(updated);
+            setStoredAuth(token, updated);
           }}
         />
       )}

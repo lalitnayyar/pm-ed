@@ -50,6 +50,9 @@ export const KanbanCard = ({ card, onDelete, onEdit }: KanbanCardProps) => {
     transition,
   };
 
+  const checklist = card.checklist ?? [];
+  const checklistDone = checklist.filter((i) => i.done).length;
+
   return (
     <article
       ref={setNodeRef}
@@ -106,18 +109,14 @@ export const KanbanCard = ({ card, onDelete, onEdit }: KanbanCardProps) => {
                 {label}
               </span>
             ))}
-            {(card.checklist ?? []).length > 0 && (() => {
-              const total = (card.checklist ?? []).length;
-              const done = (card.checklist ?? []).filter((i) => i.done).length;
-              return (
-                <span
-                  className={`flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${done === total ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-[var(--stroke)] bg-[var(--surface)] text-[var(--gray-text)]"}`}
-                  data-testid={`card-checklist-${card.id}`}
-                >
-                  ✓ {done}/{total}
-                </span>
-              );
-            })()}
+            {checklist.length > 0 && (
+              <span
+                className={`flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${checklistDone === checklist.length ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-[var(--stroke)] bg-[var(--surface)] text-[var(--gray-text)]"}`}
+                data-testid={`card-checklist-${card.id}`}
+              >
+                ✓ {checklistDone}/{checklist.length}
+              </span>
+            )}
           </div>
         </div>
 

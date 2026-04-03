@@ -135,12 +135,6 @@ export type UserProfile = {
   created_at: string;
 };
 
-export const apiGetMe = async (token: string): Promise<UserProfile> => {
-  const resp = await fetch("/api/users/me", { headers: authHeader(token) });
-  if (!resp.ok) throw new Error("Failed to fetch profile");
-  return resp.json() as Promise<UserProfile>;
-};
-
 // ── Search ────────────────────────────────────────────────────────────────────
 
 export type CardSearchResult = {
